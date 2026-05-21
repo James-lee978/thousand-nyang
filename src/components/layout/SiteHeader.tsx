@@ -3,8 +3,8 @@
 import { isFirebaseConfigured } from "@/firebase/config";
 import { subscribeToUserCount } from "@/firebase/firestore";
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../providers/AuthProvider";
-import { useEffect, useState } from "react";
 
 export function SiteHeader() {
   const { user, userProfile, loading, signOut } = useAuth();
@@ -13,20 +13,29 @@ export function SiteHeader() {
 
   useEffect(() => {
     if (!firebaseOn) return;
-    
-    const unsubscribe = subscribeToUserCount((count) => {
-      setTotalUsers(count);
-    });
-    
-    return () => {
-      unsubscribe();
-    };
-  }, [firebaseOn]);
+
+    return subscribeToUserCount(
+      (count) => {
+        setTotalUsers(count);
+      },
+      () => {
+        setTotalUsers(user ? 1 : 0);
+      },
+    );
+  }, [firebaseOn, user]);
+
+  const displayUserCount = useMemo(() => {
+    if (totalUsers === null) return null;
+    return Math.max(totalUsers, user ? 1 : 0);
+  }, [totalUsers, user]);
 
   return (
     <header className="sticky top-0 z-40 border-b border-zinc-800/80 bg-black/80 backdrop-blur-md">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-4">
-        <Link href="/" className="text-lg font-semibold tracking-tight text-white">
+        <Link
+          href="/"
+          className="text-lg font-semibold tracking-tight text-white"
+        >
           1000냥 전시회
         </Link>
         <nav className="flex flex-wrap items-center gap-3 text-sm text-zinc-300">
@@ -44,18 +53,18 @@ export function SiteHeader() {
               Firebase 미설정
             </span>
           )}
-          {totalUsers !== null && (
+          {displayUserCount !== null && (
             <span className="rounded-full border border-zinc-700 px-3 py-1 text-zinc-300">
-              가입자 {totalUsers}명
+              가입자 {displayUserCount}명
             </span>
           )}
           {userProfile && (
             <span className="rounded-full border border-zinc-600 px-3 py-1 text-zinc-200">
-              {userProfile.nickname}
+              내 닉네임: {userProfile.nickname}
             </span>
           )}
           {loading ? (
-            <span className="text-zinc-500">…</span>
+            <span className="text-zinc-500">확인 중...</span>
           ) : user ? (
             <button
               type="button"

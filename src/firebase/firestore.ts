@@ -9,8 +9,9 @@ import {
   setDoc,
   where,
 } from "firebase/firestore";
-import type { Exhibition, ExhibitionInput, User } from "@/types";
 import type { User as FirebaseUser } from "firebase/auth";
+import { generateRandomName } from "@/lib/random-name";
+import type { Exhibition, ExhibitionInput, User } from "@/types";
 import { getFirestoreDb } from "./config";
 
 function db() {
@@ -19,23 +20,24 @@ function db() {
   return d;
 }
 
-export async function ensureUserDocument(firebaseUser: FirebaseUser) {
+export async function ensureUserDocument(
+  firebaseUser: FirebaseUser,
+): Promise<User> {
   const d = db();
   const ref = doc(d, "users", firebaseUser.uid);
   const snap = await getDoc(ref);
-  
-  if (snap.exists()) return;
-  
-  // 랜덤 이름 생성
-  const { getRandomName } = await import("@/lib/random-name");
-  const randomName = getRandomName();
-  
-  await setDoc(ref, {
+  const existing = snap.exists() ? (snap.data() as Partial<User>) : null;
+
+  const profile: User = {
     uid: firebaseUser.uid,
-    nickname: randomName, // 랜덤 이름 저장
-    profileImage: firebaseUser.photoURL || undefined,
-    createdAt: new Date().toISOString(),
-  });
+    nickname: existing?.nickname || generateRandomName(),
+    role: existing?.role,
+    profileImage: existing?.profileImage || firebaseUser.photoURL || undefined,
+    createdAt: existing?.createdAt || new Date().toISOString(),
+  };
+
+  await setDoc(ref, profile, { merge: true });
+  return profile;
 }
 
 export async function getUserProfile(uid: string): Promise<User | null> {
@@ -96,34 +98,41 @@ export async function getTotalUserCount(): Promise<number> {
   return snap.size;
 }
 
-export function subscribeToUserCount(callback: (count: number) => void): () => void {
+export function subscribeToUserCount(
+  callback: (count: number) => void,
+  onError?: (error: Error) => void,
+): () => void {
   const d = getFirestoreDb();
   if (!d) {
     callback(0);
     return () => {};
   }
-  
-  const unsubscribe = onSnapshot(collection(d, "users"), (snapshot) => {
-    callback(snapshot.size);
-  });
-  
-  return unsubscribe;
+
+  return onSnapshot(
+    collection(d, "users"),
+    (snapshot) => {
+      callback(snapshot.size);
+    },
+    (error) => {
+      onError?.(error);
+    },
+  );
 }
 
-export function subscribeToExhibitions(callback: (exhibitions: Exhibition[]) => void): () => void {
+export function subscribeToExhibitions(
+  callback: (exhibitions: Exhibition[]) => void,
+): () => void {
   const d = getFirestoreDb();
   if (!d) {
     callback([]);
     return () => {};
   }
-  
-  const unsubscribe = onSnapshot(collection(d, "exhibitions"), (snapshot) => {
+
+  return onSnapshot(collection(d, "exhibitions"), (snapshot) => {
     const exhibitions = snapshot.docs.map((docSnap) => {
       const data = docSnap.data() as Omit<Exhibition, "id">;
       return { id: docSnap.id, ...data } as Exhibition;
     });
     callback(exhibitions);
   });
-  
-  return unsubscribe;
 }

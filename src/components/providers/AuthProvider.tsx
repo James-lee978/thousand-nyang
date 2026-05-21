@@ -2,6 +2,7 @@
 
 import { getFirebaseAuth } from "@/firebase/config";
 import { ensureUserDocument, getUserProfile } from "@/firebase/firestore";
+import { generateRandomName } from "@/lib/random-name";
 import type { User } from "@/types";
 import type { User as FirebaseUser } from "firebase/auth";
 import { onAuthStateChanged, signOut as firebaseSignOut } from "firebase/auth";
@@ -35,9 +36,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    await ensureUserDocument(firebaseUser);
-    const profile = await getUserProfile(firebaseUser.uid);
-    setUserProfile(profile);
+    const fallbackProfile: User = {
+      uid: firebaseUser.uid,
+      nickname: firebaseUser.displayName || generateRandomName(),
+      profileImage: firebaseUser.photoURL || undefined,
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      const ensuredProfile = await ensureUserDocument(firebaseUser);
+      const profile = await getUserProfile(firebaseUser.uid);
+      setUserProfile(profile ?? ensuredProfile ?? fallbackProfile);
+    } catch (error) {
+      console.warn("Failed to load Firebase user profile", error);
+      setUserProfile(fallbackProfile);
+    }
   }, []);
 
   useEffect(() => {
