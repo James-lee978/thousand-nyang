@@ -26,4 +26,14 @@ export interface Exhibition {
   artworks: Artwork[];
 }
 
-export type ExhibitionInput = Omit<Exhibition, "id">;
+export interface ExhibitionInput {
+  title: string;
+  description: string;
+  thumbnail: string;
+  hostId: string;
+  hostName: string;
+  category: string;
+  createdAt: string;
+  price: number;
+  artworks: Artwork[];
+}

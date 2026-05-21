@@ -4,6 +4,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   query,
   setDoc,
   where,
@@ -19,28 +20,22 @@ function db() {
 }
 
 export async function ensureUserDocument(firebaseUser: FirebaseUser) {
-  const d = getFirestoreDb();
-  if (!d) return;
+  const d = db();
   const ref = doc(d, "users", firebaseUser.uid);
   const snap = await getDoc(ref);
-  const base: User = {
+  
+  if (snap.exists()) return;
+  
+  // 랜덤 이름 생성
+  const { getRandomName } = await import("@/lib/random-name");
+  const randomName = getRandomName();
+  
+  await setDoc(ref, {
     uid: firebaseUser.uid,
-    nickname: firebaseUser.displayName || "게스트",
+    nickname: randomName, // 랜덤 이름 저장
     profileImage: firebaseUser.photoURL || undefined,
     createdAt: new Date().toISOString(),
-  };
-  if (!snap.exists()) {
-    await setDoc(ref, base);
-    return;
-  }
-  await setDoc(
-    ref,
-    {
-      nickname: firebaseUser.displayName || snap.data()?.nickname,
-      profileImage: firebaseUser.photoURL || snap.data()?.profileImage,
-    },
-    { merge: true },
-  );
+  });
 }
 
 export async function getUserProfile(uid: string): Promise<User | null> {
@@ -99,4 +94,36 @@ export async function getTotalUserCount(): Promise<number> {
   if (!d) return 0;
   const snap = await getDocs(collection(d, "users"));
   return snap.size;
+}
+
+export function subscribeToUserCount(callback: (count: number) => void): () => void {
+  const d = getFirestoreDb();
+  if (!d) {
+    callback(0);
+    return () => {};
+  }
+  
+  const unsubscribe = onSnapshot(collection(d, "users"), (snapshot) => {
+    callback(snapshot.size);
+  });
+  
+  return unsubscribe;
+}
+
+export function subscribeToExhibitions(callback: (exhibitions: Exhibition[]) => void): () => void {
+  const d = getFirestoreDb();
+  if (!d) {
+    callback([]);
+    return () => {};
+  }
+  
+  const unsubscribe = onSnapshot(collection(d, "exhibitions"), (snapshot) => {
+    const exhibitions = snapshot.docs.map((docSnap) => {
+      const data = docSnap.data() as Omit<Exhibition, "id">;
+      return { id: docSnap.id, ...data } as Exhibition;
+    });
+    callback(exhibitions);
+  });
+  
+  return unsubscribe;
 }

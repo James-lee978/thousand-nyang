@@ -1,19 +1,26 @@
 "use client";
 
 import { isFirebaseConfigured } from "@/firebase/config";
-import { getTotalUserCount } from "@/firebase/firestore";
+import { subscribeToUserCount } from "@/firebase/firestore";
 import Link from "next/link";
 import { useAuth } from "../providers/AuthProvider";
 import { useEffect, useState } from "react";
 
 export function SiteHeader() {
-  const { user, loading, signOut } = useAuth();
-  const firebaseOn = isFirebaseConfigured();
+  const { user, userProfile, loading, signOut } = useAuth();
   const [totalUsers, setTotalUsers] = useState<number | null>(null);
+  const firebaseOn = isFirebaseConfigured();
 
   useEffect(() => {
     if (!firebaseOn) return;
-    getTotalUserCount().then(setTotalUsers).catch(() => setTotalUsers(0));
+    
+    const unsubscribe = subscribeToUserCount((count) => {
+      setTotalUsers(count);
+    });
+    
+    return () => {
+      unsubscribe();
+    };
   }, [firebaseOn]);
 
   return (
@@ -40,6 +47,11 @@ export function SiteHeader() {
           {totalUsers !== null && (
             <span className="rounded-full border border-zinc-700 px-3 py-1 text-zinc-300">
               가입자 {totalUsers}명
+            </span>
+          )}
+          {userProfile && (
+            <span className="rounded-full border border-zinc-600 px-3 py-1 text-zinc-200">
+              {userProfile.nickname}
             </span>
           )}
           {loading ? (

@@ -23,7 +23,7 @@ const emptyArtwork = (): ArtworkForm => ({
 });
 
 export default function CreateExhibitionPage() {
-  const { user, loading } = useAuth();
+  const { user, userProfile, loading } = useAuth();
   const router = useRouter();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -55,8 +55,11 @@ export default function CreateExhibitionPage() {
   };
 
   const handleSubmit = async () => {
-    if (!user) return;
     setError(null);
+    if (!userProfile) {
+      setError("사용자 정보를 불러오는 중입니다. 잠시 후 다시 시도해주세요.");
+      return;
+    }
     if (!title.trim()) {
       setError("전시 제목을 입력하세요.");
       return;
@@ -70,13 +73,19 @@ export default function CreateExhibitionPage() {
       setError("최소 한 작품의 제목과 이미지를 입력하세요.");
       return;
     }
+    
     setSubmitting(true);
     try {
+      console.log("Starting thumbnail upload...");
       const thumbnail = await uploadImage(thumbFile, "thumbnails");
+      console.log("Thumbnail uploaded:", thumbnail);
+      
       const builtArtworks: Artwork[] = [];
       for (const row of filled) {
         if (!row.file) continue;
+        console.log("Uploading artwork:", row.title);
         const imageUrl = await uploadImage(row.file, "artworks");
+        console.log("Artwork uploaded:", imageUrl);
         builtArtworks.push({
           id: crypto.randomUUID(),
           title: row.title.trim(),
@@ -84,21 +93,26 @@ export default function CreateExhibitionPage() {
           imageUrl,
         });
       }
+      
       const payload: ExhibitionInput = {
         title: title.trim(),
         description: description.trim(),
         thumbnail,
-        hostId: user.uid,
-        hostName: user.displayName || "익명 큐레이터",
+        hostId: userProfile.uid, // 사용자 UID 사용
+        hostName: userProfile.nickname, // Firestore에 저장된 닉네임 사용
         category,
         createdAt: new Date().toISOString(),
         price,
         artworks: builtArtworks,
       };
+      
       await createExhibition(payload);
+      alert("전시가 등록되었습니다!");
       router.push("/host");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "저장에 실패했습니다.");
+      console.error("Upload error:", e);
+      const errorMessage = e instanceof Error ? e.message : "이미지 업로드에 실패했습니다.";
+      setError(errorMessage + "\n\nFirebase Storage가 제대로 설정되었는지 확인해주세요.");
     } finally {
       setSubmitting(false);
     }

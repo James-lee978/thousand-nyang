@@ -1,5 +1,9 @@
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { AuthProvider } from "@/components/providers/AuthProvider";
+import { GrainEffect } from "@/components/effects/GrainEffect";
+import { CustomCursor } from "@/components/effects/CustomCursor";
+import { EntranceAnimation } from "@/components/effects/EntranceAnimation";
+import { WelcomeModal } from "@/components/effects/WelcomeModal";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
@@ -31,6 +35,10 @@ export default function RootLayout({
     >
       <body className="min-h-full bg-black text-white">
         <AuthProvider>
+          <EntranceAnimation />
+          <WelcomeModal />
+          <GrainEffect />
+          <CustomCursor />
           <SiteHeader />
           <div className="flex min-h-[calc(100vh-4rem)] flex-col">{children}</div>
         </AuthProvider>

@@ -1,10 +1,11 @@
 "use client";
 
 import { ExhibitionCard } from "@/components/exhibition/ExhibitionCard";
-import { listExhibitions } from "@/firebase/firestore";
+import { subscribeToExhibitions } from "@/firebase/firestore";
 import { isFirebaseConfigured } from "@/firebase/config";
 import { CATEGORIES } from "@/lib/categories";
 import { MOCK_EXHIBITIONS } from "@/lib/mock-exhibitions";
+import { ScrollTransition, FadeIn } from "@/components/effects/ScrollTransition";
 import type { Exhibition } from "@/types";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -23,21 +24,18 @@ export default function HomePage() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!isFirebaseConfigured()) {
-        setLoaded(true);
-        return;
-      }
-      try {
-        const rows = await listExhibitions();
-        if (!cancelled) setRemote(rows);
-      } finally {
-        if (!cancelled) setLoaded(true);
-      }
-    })();
+    if (!isFirebaseConfigured()) {
+      setLoaded(true);
+      return;
+    }
+    
+    const unsubscribe = subscribeToExhibitions((exhibitions) => {
+      setRemote(exhibitions);
+      setLoaded(true);
+    });
+    
     return () => {
-      cancelled = true;
+      unsubscribe();
     };
   }, []);
 
@@ -60,95 +58,147 @@ export default function HomePage() {
 
   return (
     <main className="flex-1 bg-black text-white">
-      <section className="flex min-h-[80vh] flex-col items-center justify-center px-6 py-24 text-center">
-        <p className="mb-4 text-xs uppercase tracking-[0.35em] text-zinc-500">
-          온라인 아카이브
-        </p>
-        <h1 className="text-5xl font-semibold tracking-tight sm:text-6xl">
-          1000냥 전시회
-        </h1>
-        <p className="mt-6 max-w-2xl text-lg text-zinc-400">
-          전공에서 발견한 예술을 전시하다.
-        </p>
-        <div className="mt-10 flex flex-wrap justify-center gap-4">
-          <Link
-            href="/host"
-            className="rounded-full bg-white px-6 py-3 text-sm font-semibold text-black transition hover:bg-zinc-200"
-          >
-            HOST 시작하기
-          </Link>
-          <Link
-            href="/guest"
-            className="rounded-full border border-zinc-700 px-6 py-3 text-sm font-semibold text-zinc-100 transition hover:border-zinc-500"
-          >
-            GUEST 입장하기
-          </Link>
-          <Link
-            href="/login"
-            className="rounded-full border border-zinc-800 px-6 py-3 text-sm text-zinc-300 transition hover:border-zinc-600"
-          >
-            로그인
-          </Link>
+      {/* Hero Section - Immersive Gallery Entrance */}
+      <section className="relative min-h-screen flex items-center justify-center px-6">
+        <div className="max-w-4xl text-center space-y-12">
+          <FadeIn delay={0.2}>
+            <p className="text-[10px] uppercase tracking-[0.5em] text-zinc-500">
+              Online Exhibition Archive
+            </p>
+          </FadeIn>
+          <FadeIn delay={0.4}>
+            <h1 className="text-6xl font-light tracking-tight sm:text-8xl md:text-9xl">
+              1000냥
+            </h1>
+          </FadeIn>
+          <FadeIn delay={0.6}>
+            <p className="text-sm text-zinc-400 max-w-xl mx-auto leading-relaxed">
+              전공에서 발견한 예술을 전시하는 디지털 공간
+            </p>
+          </FadeIn>
+          <FadeIn delay={0.8}>
+            <div className="flex flex-wrap justify-center gap-6 pt-8">
+              <Link
+                href="/host"
+                className="px-8 py-3 text-xs uppercase tracking-[0.2em] text-white border border-white/30 hover:bg-white hover:text-black transition-all duration-500"
+              >
+                Host
+              </Link>
+              <Link
+                href="/guest"
+                className="px-8 py-3 text-xs uppercase tracking-[0.2em] text-zinc-400 hover:text-white transition-all duration-500"
+              >
+                Guest
+              </Link>
+              <Link
+                href="/login"
+                className="px-8 py-3 text-xs uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300 transition-all duration-500"
+              >
+                Login
+              </Link>
+            </div>
+          </FadeIn>
         </div>
         {!loaded && (
-          <p className="mt-8 text-sm text-zinc-500">전시 데이터를 불러오는 중…</p>
+          <p className="absolute bottom-12 left-1/2 -translate-x-1/2 text-xs text-zinc-600">
+            Loading exhibitions…
+          </p>
         )}
       </section>
 
+      {/* Today's Exhibition - Featured */}
       {today && (
-        <section className="mx-auto max-w-6xl px-6 pb-20">
-          <div className="mb-8 flex items-end justify-between gap-4">
-            <div>
-              <h2 className="text-3xl font-semibold">오늘의 전시</h2>
-              <p className="mt-2 text-sm text-zinc-500">
-                큐레이터가 고른 오늘의 한 작품.
-              </p>
+        <section className="py-32 px-6">
+          <ScrollTransition direction="up" delay={0.2}>
+            <div className="max-w-7xl mx-auto">
+              <div className="mb-16 space-y-4">
+                <p className="text-[10px] uppercase tracking-[0.5em] text-zinc-500">
+                  Featured
+                </p>
+                <h2 className="text-4xl font-light tracking-tight">오늘의 전시</h2>
+              </div>
+              <div className="grid gap-16 md:grid-cols-2">
+                <ExhibitionCard exhibition={today} />
+              </div>
             </div>
-          </div>
-          <div className="grid gap-8 md:grid-cols-2">
-            <ExhibitionCard exhibition={today} />
-          </div>
+          </ScrollTransition>
         </section>
       )}
 
-      <section className="mx-auto max-w-6xl px-6 pb-20">
-        <h2 className="mb-8 text-3xl font-semibold">인기 전시</h2>
-        <div className="grid gap-8 md:grid-cols-2">
-          {popular.slice(0, 4).map((item) => (
-            <ExhibitionCard key={item.id} exhibition={item} />
-          ))}
-        </div>
+      {/* Popular Exhibitions */}
+      <section className="py-32 px-6">
+        <ScrollTransition direction="up" delay={0.2}>
+          <div className="max-w-7xl mx-auto">
+            <div className="mb-16 space-y-4">
+              <p className="text-[10px] uppercase tracking-[0.5em] text-zinc-500">
+                Popular
+              </p>
+              <h2 className="text-4xl font-light tracking-tight">인기 전시</h2>
+            </div>
+            <div className="grid gap-16 md:grid-cols-2 lg:grid-cols-3">
+              {popular.slice(0, 6).map((item, index) => (
+                <ExhibitionCard key={item.id} exhibition={item} />
+              ))}
+            </div>
+          </div>
+        </ScrollTransition>
       </section>
 
-      <section className="mx-auto max-w-6xl px-6 pb-20">
-        <h2 className="mb-8 text-3xl font-semibold">최신 전시</h2>
-        <div className="grid gap-8 md:grid-cols-2">
-          {catalog.slice(0, 4).map((item) => (
-            <ExhibitionCard key={`latest-${item.id}`} exhibition={item} />
-          ))}
-        </div>
+      {/* Latest Exhibitions */}
+      <section className="py-32 px-6">
+        <ScrollTransition direction="up" delay={0.2}>
+          <div className="max-w-7xl mx-auto">
+            <div className="mb-16 space-y-4">
+              <p className="text-[10px] uppercase tracking-[0.5em] text-zinc-500">
+                Latest
+              </p>
+              <h2 className="text-4xl font-light tracking-tight">최신 전시</h2>
+            </div>
+            <div className="grid gap-16 md:grid-cols-2 lg:grid-cols-3">
+              {catalog.slice(0, 6).map((item) => (
+                <ExhibitionCard key={`latest-${item.id}`} exhibition={item} />
+              ))}
+            </div>
+          </div>
+        </ScrollTransition>
       </section>
 
-      <section className="mx-auto max-w-6xl px-6 pb-24">
-        <h2 className="mb-8 text-3xl font-semibold">분야별 탐색</h2>
-        <div className="space-y-12">
-          {CATEGORIES.map((category) => {
-            const items = byCategory.get(category) ?? [];
-            if (!items.length) return null;
-            return (
-              <div key={category} id={encodeURIComponent(category)}>
-                <h3 className="mb-4 text-xl font-medium text-zinc-200">
-                  {category}
-                </h3>
-                <div className="grid gap-6 md:grid-cols-2">
-                  {items.map((item) => (
-                    <ExhibitionCard key={item.id} exhibition={item} />
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      {/* Category Exploration */}
+      <section className="py-32 px-6 pb-48">
+        <ScrollTransition direction="up" delay={0.2}>
+          <div className="max-w-7xl mx-auto">
+            <div className="mb-16 space-y-4">
+              <p className="text-[10px] uppercase tracking-[0.5em] text-zinc-500">
+                Explore
+              </p>
+              <h2 className="text-4xl font-light tracking-tight">분야별 탐색</h2>
+            </div>
+            <div className="space-y-32">
+              {CATEGORIES.map((category) => {
+                const items = byCategory.get(category) ?? [];
+                if (!items.length) return null;
+                return (
+                  <ScrollTransition key={category} direction="up" delay={0.1}>
+                    <div id={encodeURIComponent(category)} className="space-y-12">
+                      <div className="flex items-center space-x-6">
+                        <div className="h-px flex-1 bg-zinc-800" />
+                        <h3 className="text-2xl font-light tracking-wide text-zinc-300">
+                          {category}
+                        </h3>
+                        <div className="h-px flex-1 bg-zinc-800" />
+                      </div>
+                      <div className="grid gap-16 md:grid-cols-2 lg:grid-cols-3">
+                        {items.map((item) => (
+                          <ExhibitionCard key={item.id} exhibition={item} />
+                        ))}
+                      </div>
+                    </div>
+                  </ScrollTransition>
+                );
+              })}
+            </div>
+          </div>
+        </ScrollTransition>
       </section>
     </main>
   );
