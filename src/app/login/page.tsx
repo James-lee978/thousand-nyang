@@ -1,6 +1,7 @@
 "use client";
 
-import { getGoogleRedirectUser, loginWithGoogle } from "@/firebase/auth";
+import { useAuth } from "@/components/providers/AuthProvider";
+import { loginWithGoogle } from "@/firebase/auth";
 import { isFirebaseConfigured } from "@/firebase/config";
 import { ensureUserDocument, getUserProfile } from "@/firebase/firestore";
 import type { User } from "firebase/auth";
@@ -10,6 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { user, userProfile, loading, refreshProfile } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const ready = isFirebaseConfigured();
@@ -28,39 +30,23 @@ export default function LoginPage() {
   );
 
   useEffect(() => {
-    if (!ready) return;
-
-    let active = true;
-
-    getGoogleRedirectUser()
-      .then(async (user) => {
-        if (!active || !user) return;
-        setPending(true);
-        await finishLogin(user);
-      })
-      .catch((e) => {
-        if (!active) return;
-        setError(
-          e instanceof Error
-            ? e.message
-            : "Google 로그인 결과를 확인하지 못했습니다.",
-        );
-      })
-      .finally(() => {
-        if (active) setPending(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [finishLogin, ready]);
+    if (!ready || loading || !user) return;
+    if (!userProfile?.role) {
+      router.replace("/role");
+      return;
+    }
+    router.replace(userProfile.role === "host" ? "/host" : "/guest");
+  }, [loading, ready, router, user, userProfile]);
 
   const handleGoogle = async () => {
     setError(null);
     setPending(true);
     try {
       const user = await loginWithGoogle();
-      if (user) await finishLogin(user);
+      if (user) {
+        await finishLogin(user);
+        await refreshProfile();
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "로그인에 실패했습니다.");
     } finally {

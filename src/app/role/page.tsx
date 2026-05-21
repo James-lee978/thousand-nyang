@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 export default function RolePage() {
-  const { user, loading } = useAuth();
+  const { user, loading, refreshProfile } = useAuth();
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +27,7 @@ export default function RolePage() {
     setError(null);
     try {
       await setUserRole(user.uid, role);
+      await refreshProfile();
       router.push(role === "host" ? "/host" : "/guest");
     } catch (e) {
       setError(e instanceof Error ? e.message : "역할 저장에 실패했습니다.");

@@ -76,18 +76,17 @@ export default function CreateExhibitionPage() {
     
     setSubmitting(true);
     try {
-      console.log("Starting thumbnail upload...");
-      const thumbnail = await uploadImage(thumbFile, "thumbnails");
-      console.log("Thumbnail uploaded:", thumbnail);
+      const exhibitionDraftId = crypto.randomUUID();
+      const basePath = `users/${userProfile.uid}/exhibitions/${exhibitionDraftId}`;
+      const thumbnail = await uploadImage(thumbFile, `${basePath}/thumbnail`);
       
       const builtArtworks: Artwork[] = [];
       for (const row of filled) {
         if (!row.file) continue;
-        console.log("Uploading artwork:", row.title);
-        const imageUrl = await uploadImage(row.file, "artworks");
-        console.log("Artwork uploaded:", imageUrl);
+        const artworkId = crypto.randomUUID();
+        const imageUrl = await uploadImage(row.file, `${basePath}/artworks`);
         builtArtworks.push({
-          id: crypto.randomUUID(),
+          id: artworkId,
           title: row.title.trim(),
           description: row.description.trim(),
           imageUrl,
@@ -110,7 +109,6 @@ export default function CreateExhibitionPage() {
       alert("전시가 등록되었습니다!");
       router.push("/host");
     } catch (e) {
-      console.error("Upload error:", e);
       const errorMessage = e instanceof Error ? e.message : "이미지 업로드에 실패했습니다.";
       setError(errorMessage + "\n\nFirebase Storage가 제대로 설정되었는지 확인해주세요.");
     } finally {
