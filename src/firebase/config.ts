@@ -9,13 +9,34 @@ function readFirebaseEnv(name: string): string | undefined {
   return value.trim().replace(/^["']|["'],?$/g, "").replace(/,$/, "");
 }
 
+const fallbackFirebaseConfig = {
+  apiKey: "AIzaSyCQz15M3t3GxPMjNL9kJsU69EAAJZF5wW0",
+  authDomain: "thousand-nyang.firebaseapp.com",
+  projectId: "thousand-nyang",
+  storageBucket: "thousand-nyang.firebasestorage.app",
+  messagingSenderId: "842206630912",
+  appId: "1:842206630912:web:de87b006da9512a7f734e5",
+};
+
 const firebaseConfig = {
-  apiKey: readFirebaseEnv("NEXT_PUBLIC_FIREBASE_API_KEY"),
-  authDomain: readFirebaseEnv("NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN"),
-  projectId: readFirebaseEnv("NEXT_PUBLIC_FIREBASE_PROJECT_ID"),
-  storageBucket: readFirebaseEnv("NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET"),
-  messagingSenderId: readFirebaseEnv("NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID"),
-  appId: readFirebaseEnv("NEXT_PUBLIC_FIREBASE_APP_ID"),
+  apiKey:
+    readFirebaseEnv("NEXT_PUBLIC_FIREBASE_API_KEY") ??
+    fallbackFirebaseConfig.apiKey,
+  authDomain:
+    readFirebaseEnv("NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN") ??
+    fallbackFirebaseConfig.authDomain,
+  projectId:
+    readFirebaseEnv("NEXT_PUBLIC_FIREBASE_PROJECT_ID") ??
+    fallbackFirebaseConfig.projectId,
+  storageBucket:
+    readFirebaseEnv("NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET") ??
+    fallbackFirebaseConfig.storageBucket,
+  messagingSenderId:
+    readFirebaseEnv("NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID") ??
+    fallbackFirebaseConfig.messagingSenderId,
+  appId:
+    readFirebaseEnv("NEXT_PUBLIC_FIREBASE_APP_ID") ??
+    fallbackFirebaseConfig.appId,
 };
 
 export function isFirebaseConfigured(): boolean {
