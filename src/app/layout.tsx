@@ -21,6 +21,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "1000냥 전시회",
   description: "전공에서 발견한 예술을 전시하다.",
+  icons: {
+    icon: "/yeopjeon.svg",
+  },
 };
 
 export default function RootLayout({

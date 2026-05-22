@@ -8,7 +8,7 @@ import type { Artwork, Exhibition } from "@/types";
 import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 
 function OrnateFrame({
   children,
@@ -45,32 +45,65 @@ function FramedArtwork({
   active: boolean;
   delay: number;
 }) {
+  const ref = useRef<HTMLElement>(null);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    if (!active) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            setIsVisible(true);
+          }
+        });
+      },
+      {
+        threshold: 0.3,
+        rootMargin: "-10% 0px -10% 0px",
+      }
+    );
+
+    if (ref.current) {
+      observer.observe(ref.current);
+    }
+
+    return () => {
+      if (ref.current) {
+        observer.unobserve(ref.current);
+      }
+    };
+  }, [active]);
+
   return (
     <article
-      className={`mx-auto max-w-4xl ${
-        active
-          ? "animate-[galleryReveal_1.3s_ease-out_forwards]"
-          : "opacity-0 translate-y-12 blur-sm"
+      ref={ref}
+      className={`mx-auto max-w-4xl min-h-screen flex items-center justify-center py-20 transition-all duration-1000 ease-out ${
+        isVisible
+          ? "opacity-100 translate-y-0 blur-0"
+          : "opacity-0 translate-y-20 blur-sm"
       }`}
-      style={active ? { animationDelay: `${delay}ms` } : undefined}
     >
-      <OrnateFrame variant="art">
-        <Image
-          src={art.imageUrl}
-          alt={art.title}
-          fill
-          unoptimized={art.imageUrl.startsWith("data:")}
-          className="object-contain"
-          sizes="100vw"
-        />
-      </OrnateFrame>
-      <div className="mx-auto mt-7 max-w-xl border border-yellow-100/20 bg-black/70 px-5 py-4 text-center shadow-[0_18px_50px_rgba(0,0,0,0.4)]">
-        <h3 className="text-xl font-semibold text-zinc-100">{art.title}</h3>
-        {art.description && (
-          <p className="mt-2 text-sm leading-6 text-zinc-400">
-            {art.description}
-          </p>
-        )}
+      <div className="w-full">
+        <OrnateFrame variant="art">
+          <Image
+            src={art.imageUrl}
+            alt={art.title}
+            fill
+            unoptimized={art.imageUrl.startsWith("data:")}
+            className="object-contain"
+            sizes="100vw"
+          />
+        </OrnateFrame>
+        <div className="mx-auto mt-7 max-w-xl border border-yellow-100/20 bg-black/70 px-5 py-4 text-center shadow-[0_18px_50px_rgba(0,0,0,0.4)]">
+          <h3 className="text-xl font-semibold text-zinc-100">{art.title}</h3>
+          {art.description && (
+            <p className="mt-2 text-sm leading-6 text-zinc-400">
+              {art.description}
+            </p>
+          )}
+        </div>
       </div>
     </article>
   );
@@ -259,7 +292,7 @@ export default function ExhibitionDetailPage() {
 
         <section
           id="gallery-room"
-          className="relative mt-28 space-y-20 overflow-hidden rounded-t-[42px] border-t border-amber-100/15 bg-[linear-gradient(180deg,rgba(255,221,154,0.08),rgba(0,0,0,0)_260px)] px-2 py-20"
+          className="relative mt-28 space-y-0 overflow-hidden rounded-t-[42px] border-t border-amber-100/15 bg-[linear-gradient(180deg,rgba(255,221,154,0.08),rgba(0,0,0,0)_260px)] px-2 py-20 snap-y snap-mandatory"
         >
           <div
             className={`pointer-events-none absolute inset-y-0 left-0 w-1/2 origin-left bg-gradient-to-r from-black via-red-950/70 to-transparent ${
@@ -287,7 +320,7 @@ export default function ExhibitionDetailPage() {
             </p>
             <h2 className="mt-3 text-3xl font-semibold text-white">본 전시</h2>
           </div>
-          <div className="relative space-y-24">
+          <div className="relative space-y-0">
             {data.artworks.map((art, index) => (
               <FramedArtwork
                 key={art.id}
