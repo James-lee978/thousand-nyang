@@ -6,6 +6,7 @@ import {
   getDocs,
   onSnapshot,
   query,
+  runTransaction,
   setDoc,
   where,
 } from "firebase/firestore";
@@ -55,7 +56,12 @@ export async function setUserRole(uid: string, role: "host" | "guest") {
 
 export async function createExhibition(data: ExhibitionInput) {
   const d = db();
-  await addDoc(collection(d, "exhibitions"), data);
+  await addDoc(collection(d, "exhibitions"), {
+    likes: 0,
+    dislikes: 0,
+    reactions: {},
+    ...data,
+  });
 }
 
 export async function listExhibitions(): Promise<Exhibition[]> {
@@ -96,6 +102,41 @@ export async function getTotalUserCount(): Promise<number> {
   if (!d) return 0;
   const snap = await getDocs(collection(d, "users"));
   return snap.size;
+}
+
+export async function reactToExhibition(
+  exhibitionId: string,
+  uid: string,
+  reaction: "like" | "dislike",
+): Promise<Exhibition | null> {
+  const d = db();
+  const ref = doc(d, "exhibitions", exhibitionId);
+
+  return runTransaction(d, async (transaction) => {
+    const snap = await transaction.get(ref);
+    if (!snap.exists()) return null;
+
+    const current = snap.data() as Omit<Exhibition, "id">;
+    const reactions = { ...(current.reactions ?? {}) };
+    const previous = reactions[uid];
+    let likes = current.likes ?? 0;
+    let dislikes = current.dislikes ?? 0;
+
+    if (previous === reaction) {
+      delete reactions[uid];
+      if (reaction === "like") likes = Math.max(0, likes - 1);
+      if (reaction === "dislike") dislikes = Math.max(0, dislikes - 1);
+    } else {
+      if (previous === "like") likes = Math.max(0, likes - 1);
+      if (previous === "dislike") dislikes = Math.max(0, dislikes - 1);
+      reactions[uid] = reaction;
+      if (reaction === "like") likes += 1;
+      if (reaction === "dislike") dislikes += 1;
+    }
+
+    transaction.update(ref, { likes, dislikes, reactions });
+    return { id: snap.id, ...current, likes, dislikes, reactions };
+  });
 }
 
 export function subscribeToUserCount(

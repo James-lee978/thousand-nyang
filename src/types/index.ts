@@ -24,6 +24,9 @@ export interface Exhibition {
   createdAt: string;
   price: number;
   artworks: Artwork[];
+  likes?: number;
+  dislikes?: number;
+  reactions?: Record<string, "like" | "dislike">;
 }
 
 export interface ExhibitionInput {
@@ -36,4 +39,7 @@ export interface ExhibitionInput {
   createdAt: string;
   price: number;
   artworks: Artwork[];
+  likes?: number;
+  dislikes?: number;
+  reactions?: Record<string, "like" | "dislike">;
 }

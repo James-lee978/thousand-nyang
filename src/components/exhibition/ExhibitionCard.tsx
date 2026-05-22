@@ -19,6 +19,7 @@ export function ExhibitionCard({ exhibition, href }: Props) {
             src={exhibition.thumbnail}
             alt={exhibition.title}
             fill
+            unoptimized={exhibition.thumbnail.startsWith("data:")}
             className="object-cover transition duration-1000 group-hover:scale-105 group-hover:brightness-110"
             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
           />
