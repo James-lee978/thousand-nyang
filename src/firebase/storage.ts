@@ -1,8 +1,10 @@
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+const FIRESTORE_IMAGE_BUDGET = 720 * 1024;
 
 type ImageDataUrlOptions = {
   maxSize?: number;
   quality?: number;
+  maxBytes?: number;
 };
 
 function loadImage(file: File) {
@@ -21,21 +23,11 @@ function loadImage(file: File) {
   });
 }
 
-export async function prepareImageDataUrl(
-  file: File,
-  options: ImageDataUrlOptions = {},
+function renderImageDataUrl(
+  image: HTMLImageElement,
+  maxSize: number,
+  quality: number,
 ) {
-  if (!file.type.startsWith("image/")) {
-    throw new Error("이미지 파일만 등록할 수 있습니다.");
-  }
-
-  if (file.size > MAX_IMAGE_SIZE) {
-    throw new Error("이미지는 10MB 이하로 선택해 주세요.");
-  }
-
-  const maxSize = options.maxSize ?? 720;
-  const quality = options.quality ?? 0.55;
-  const image = await loadImage(file);
   const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
   const width = Math.max(1, Math.round(image.width * scale));
   const height = Math.max(1, Math.round(image.height * scale));
@@ -50,4 +42,40 @@ export async function prepareImageDataUrl(
 
   context.drawImage(image, 0, 0, width, height);
   return canvas.toDataURL("image/webp", quality);
+}
+
+export async function prepareImageDataUrl(
+  file: File,
+  options: ImageDataUrlOptions = {},
+) {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("이미지 파일만 등록할 수 있습니다.");
+  }
+
+  if (file.size > MAX_IMAGE_SIZE) {
+    throw new Error("이미지는 10MB 이하로 선택해 주세요.");
+  }
+
+  const image = await loadImage(file);
+  const maxBytes = options.maxBytes ?? FIRESTORE_IMAGE_BUDGET;
+  const attempts = [
+    { maxSize: options.maxSize ?? 520, quality: options.quality ?? 0.5 },
+    { maxSize: 460, quality: 0.42 },
+    { maxSize: 380, quality: 0.36 },
+    { maxSize: 320, quality: 0.3 },
+    { maxSize: 260, quality: 0.24 },
+  ];
+
+  for (const attempt of attempts) {
+    const dataUrl = renderImageDataUrl(
+      image,
+      Math.min(options.maxSize ?? attempt.maxSize, attempt.maxSize),
+      Math.min(options.quality ?? attempt.quality, attempt.quality),
+    );
+    if (dataUrl.length <= maxBytes) return dataUrl;
+  }
+
+  throw new Error(
+    "이미지를 Firestore에 저장할 수 있을 만큼 줄이지 못했습니다. 더 작은 이미지를 선택해 주세요.",
+  );
 }

@@ -194,8 +194,9 @@ export default function CreateExhibitionPage() {
         tone: "working",
       });
       const thumbnail = await prepareImageDataUrl(thumbFile, {
-        maxSize: 760,
-        quality: 0.55,
+        maxSize: 520,
+        quality: 0.48,
+        maxBytes: 360 * 1024,
       });
 
       const builtArtworks: Artwork[] = [];
@@ -208,8 +209,9 @@ export default function CreateExhibitionPage() {
           tone: "working",
         });
         const imageUrl = await prepareImageDataUrl(row.file, {
-          maxSize: 720,
-          quality: 0.5,
+          maxSize: 500,
+          quality: 0.45,
+          maxBytes: 260 * 1024,
         });
         builtArtworks.push({
           id: crypto.randomUUID(),
