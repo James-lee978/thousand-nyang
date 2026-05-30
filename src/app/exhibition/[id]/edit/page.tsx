@@ -1,10 +1,11 @@
 "use client";
 
 import { useAuth } from "@/components/providers/AuthProvider";
+import { MusicPreviewSelect } from "@/components/exhibition/MusicPreviewSelect";
 import { getExhibition, updateExhibition } from "@/firebase/firestore";
 import { prepareImageDataUrl } from "@/firebase/storage";
 import { CATEGORIES } from "@/lib/categories";
-import { DEFAULT_MUSIC_ID, EXHIBITION_MUSIC } from "@/lib/music";
+import { DEFAULT_MUSIC_ID } from "@/lib/music";
 import type { Artwork, Exhibition } from "@/types";
 import Image from "next/image";
 import Link from "next/link";
@@ -323,20 +324,7 @@ export default function EditExhibitionPage() {
           </label>
         </div>
 
-        <label className="block space-y-2 text-sm">
-          <span className="text-zinc-400">전시 음악</span>
-          <select
-            value={musicId}
-            onChange={(event) => setMusicId(event.target.value)}
-            className="w-full rounded-2xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-white outline-none focus:border-zinc-500"
-          >
-            {EXHIBITION_MUSIC.map((track) => (
-              <option key={track.id} value={track.id}>
-                {track.title} - {track.mood}
-              </option>
-            ))}
-          </select>
-        </label>
+        <MusicPreviewSelect value={musicId} onChange={setMusicId} />
       </div>
 
       <section className="mt-12 space-y-6">

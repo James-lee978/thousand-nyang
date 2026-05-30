@@ -1,11 +1,12 @@
 "use client";
 
 import { useAuth } from "@/components/providers/AuthProvider";
+import { MusicPreviewSelect } from "@/components/exhibition/MusicPreviewSelect";
 import { isFirebaseConfigured } from "@/firebase/config";
 import { createExhibition } from "@/firebase/firestore";
 import { prepareImageDataUrl } from "@/firebase/storage";
 import { CATEGORIES } from "@/lib/categories";
-import { DEFAULT_MUSIC_ID, EXHIBITION_MUSIC } from "@/lib/music";
+import { DEFAULT_MUSIC_ID } from "@/lib/music";
 import type { Artwork, ExhibitionInput } from "@/types";
 import Image from "next/image";
 import Link from "next/link";
@@ -155,6 +156,13 @@ export default function CreateExhibitionPage() {
     setArtworks((prev) =>
       prev.map((row, i) => (i === index ? { ...row, ...patch } : row)),
     );
+  };
+
+  const removeRow = (index: number) => {
+    setArtworks((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((_, i) => i !== index);
+    });
   };
 
   const handleSubmit = async () => {
@@ -365,20 +373,7 @@ export default function CreateExhibitionPage() {
           </label>
         </div>
 
-        <label className="block space-y-2 text-sm">
-          <span className="text-zinc-400">전시 음악</span>
-          <select
-            value={musicId}
-            onChange={(event) => setMusicId(event.target.value)}
-            className="w-full rounded-2xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-white outline-none focus:border-zinc-500"
-          >
-            {EXHIBITION_MUSIC.map((track) => (
-              <option key={track.id} value={track.id}>
-                {track.title} - {track.mood}
-              </option>
-            ))}
-          </select>
-        </label>
+        <MusicPreviewSelect value={musicId} onChange={setMusicId} />
       </div>
 
       <section className="mt-12 space-y-6">
@@ -399,9 +394,21 @@ export default function CreateExhibitionPage() {
             key={index}
             className="space-y-4 rounded-3xl border border-zinc-900 bg-zinc-950/60 p-6"
           >
-            <p className="text-xs uppercase tracking-[0.25em] text-zinc-500">
-              작품 {index + 1}
-            </p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs uppercase tracking-[0.25em] text-zinc-500">
+                작품 {index + 1}
+              </p>
+              {artworks.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeRow(index)}
+                  disabled={submitting}
+                  className="rounded-full border border-zinc-800 px-3 py-1 text-xs text-zinc-400 transition hover:border-rose-300 hover:text-rose-200 disabled:opacity-40"
+                >
+                  작품 삭제
+                </button>
+              )}
+            </div>
             <input
               value={row.title}
               onChange={(event) => updateRow(index, { title: event.target.value })}
