@@ -1,15 +1,14 @@
 "use client";
 
 import { useAuth } from "@/components/providers/AuthProvider";
-import { isFirebaseConfigured } from "@/firebase/config";
-import { createExhibition } from "@/firebase/firestore";
+import { getExhibition, updateExhibition } from "@/firebase/firestore";
 import { prepareImageDataUrl } from "@/firebase/storage";
 import { CATEGORIES } from "@/lib/categories";
 import { DEFAULT_MUSIC_ID, EXHIBITION_MUSIC } from "@/lib/music";
-import type { Artwork, ExhibitionInput } from "@/types";
+import type { Artwork, Exhibition } from "@/types";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   type ChangeEvent,
   type DragEvent,
@@ -18,53 +17,40 @@ import {
   useState,
 } from "react";
 
-type ArtworkForm = {
-  title: string;
-  description: string;
+type ArtworkEdit = Artwork & {
   file: File | null;
 };
 
-type UploadStatus = {
-  label: string;
-  detail: string;
-  progress: number;
-  tone: "working" | "success";
-} | null;
-
-const emptyArtwork = (): ArtworkForm => ({
-  title: "",
-  description: "",
-  file: null,
-});
-
-function FilePreview({ file }: { file: File | null }) {
-  const previewUrl = useMemo(
-    () => (file ? URL.createObjectURL(file) : null),
-    [file],
-  );
+function FilePreview({
+  file,
+  currentUrl,
+}: {
+  file: File | null;
+  currentUrl?: string;
+}) {
+  const previewUrl = useMemo(() => {
+    if (file) return URL.createObjectURL(file);
+    return currentUrl || null;
+  }, [currentUrl, file]);
 
   useEffect(() => {
     return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      if (file && previewUrl) URL.revokeObjectURL(previewUrl);
     };
-  }, [previewUrl]);
+  }, [file, previewUrl]);
 
-  if (!file || !previewUrl) return null;
+  if (!previewUrl) return null;
 
   return (
     <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950">
       <Image
         src={previewUrl}
-        alt={file.name}
+        alt="preview"
         width={960}
         height={540}
-        unoptimized
+        unoptimized={previewUrl.startsWith("data:") || previewUrl.startsWith("blob:")}
         className="h-56 w-full object-cover"
       />
-      <div className="flex items-center justify-between gap-3 px-4 py-3 text-xs text-zinc-400">
-        <span className="truncate">{file.name}</span>
-        <span>{(file.size / 1024 / 1024).toFixed(1)}MB</span>
-      </div>
     </div>
   );
 }
@@ -72,10 +58,12 @@ function FilePreview({ file }: { file: File | null }) {
 function ImageDropField({
   label,
   file,
+  currentUrl,
   onFile,
 }: {
   label: string;
   file: File | null;
+  currentUrl?: string;
   onFile: (file: File | null) => void;
 }) {
   const [dragging, setDragging] = useState(false);
@@ -104,7 +92,7 @@ function ImageDropField({
         onDragOver={(event) => event.preventDefault()}
         onDragLeave={() => setDragging(false)}
         onDrop={dropFile}
-        className={`flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed px-4 py-8 text-center transition ${
+        className={`flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed px-4 py-7 text-center transition ${
           dragging
             ? "border-white bg-white/10 text-white"
             : "border-zinc-700 bg-zinc-950 text-zinc-400 hover:border-zinc-500"
@@ -112,164 +100,155 @@ function ImageDropField({
       >
         <input type="file" accept="image/*" onChange={pickFile} className="sr-only" />
         <span className="text-sm font-semibold text-zinc-100">
-          {file ? file.name : "이미지를 끌어오거나 클릭해서 선택"}
+          {file ? file.name : "이미지를 교체하려면 선택하거나 끌어오기"}
         </span>
         <span className="mt-2 text-xs text-zinc-500">
-          이미지는 Firestore 제한에 맞게 자동 압축됩니다.
+          새 파일을 선택하지 않으면 기존 이미지를 유지합니다.
         </span>
       </label>
-      <FilePreview file={file} />
+      <FilePreview file={file} currentUrl={currentUrl} />
     </div>
   );
 }
 
-export default function CreateExhibitionPage() {
-  const { user, userProfile, loading } = useAuth();
+export default function EditExhibitionPage() {
+  const params = useParams();
+  const id = String(params.id ?? "");
   const router = useRouter();
+  const { user, loading } = useAuth();
+  const [original, setOriginal] = useState<Exhibition | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<string>(CATEGORIES[0]);
   const [price, setPrice] = useState(1000);
   const [musicId, setMusicId] = useState(DEFAULT_MUSIC_ID);
   const [thumbFile, setThumbFile] = useState<File | null>(null);
-  const [artworks, setArtworks] = useState<ArtworkForm[]>([
-    emptyArtwork(),
-    emptyArtwork(),
-  ]);
-  const [submitting, setSubmitting] = useState(false);
-  const [uploadStatus, setUploadStatus] = useState<UploadStatus>(null);
+  const [artworks, setArtworks] = useState<ArtworkEdit[]>([]);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (loading) return;
-    if (!isFirebaseConfigured()) return;
     if (!user) router.replace("/login");
   }, [loading, router, user]);
 
-  const addRow = () => {
-    if (artworks.length >= 5) return;
-    setArtworks((prev) => [...prev, emptyArtwork()]);
-  };
+  useEffect(() => {
+    if (loading || !user) return;
+    let cancelled = false;
+    (async () => {
+      const exhibition = await getExhibition(id);
+      if (!exhibition || cancelled) return;
 
-  const updateRow = (index: number, patch: Partial<ArtworkForm>) => {
+      if (exhibition.hostId !== user.uid) {
+        router.replace("/host");
+        return;
+      }
+
+      setOriginal(exhibition);
+      setTitle(exhibition.title);
+      setDescription(exhibition.description);
+      setCategory(exhibition.category);
+      setPrice(exhibition.price);
+      setMusicId(exhibition.musicId ?? DEFAULT_MUSIC_ID);
+      setArtworks(exhibition.artworks.map((art) => ({ ...art, file: null })));
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [id, loading, router, user]);
+
+  const updateArtwork = (index: number, patch: Partial<ArtworkEdit>) => {
     setArtworks((prev) =>
       prev.map((row, i) => (i === index ? { ...row, ...patch } : row)),
     );
   };
 
-  const handleSubmit = async () => {
-    setError(null);
-    setUploadStatus(null);
+  const addArtwork = () => {
+    if (artworks.length >= 5) return;
+    setArtworks((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        title: "",
+        description: "",
+        imageUrl: "",
+        file: null,
+      },
+    ]);
+  };
 
-    if (!userProfile) {
-      setError("사용자 정보를 불러오는 중입니다. 잠시 후 다시 시도해주세요.");
-      return;
-    }
+  const removeArtwork = (index: number) => {
+    setArtworks((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const save = async () => {
+    if (!original || !user) return;
+    setError(null);
+
     if (!title.trim()) {
       setError("전시 제목을 입력해주세요.");
       return;
     }
-    if (!thumbFile) {
-      setError("대표 이미지를 선택해주세요.");
+
+    const validArtworks = artworks.filter(
+      (art) => art.title.trim() && (art.file || art.imageUrl),
+    );
+    if (!validArtworks.length) {
+      setError("최소 한 작품은 제목과 이미지가 있어야 합니다.");
       return;
     }
 
-    const filled = artworks.filter((a) => a.title.trim() && a.file);
-    if (!filled.length) {
-      setError("최소 한 작품의 제목과 이미지를 입력해주세요.");
-      return;
-    }
-
-    setSubmitting(true);
+    setSaving(true);
     try {
-      setUploadStatus({
-        label: "대표 이미지 변환 중",
-        detail: thumbFile.name,
-        progress: 22,
-        tone: "working",
-      });
-      const thumbnail = await prepareImageDataUrl(thumbFile, {
-        maxSize: 520,
-        quality: 0.48,
-        maxBytes: 360 * 1024,
-      });
+      const thumbnail = thumbFile
+        ? await prepareImageDataUrl(thumbFile, {
+            maxSize: 520,
+            quality: 0.48,
+            maxBytes: 360 * 1024,
+          })
+        : original.thumbnail;
 
-      const builtArtworks: Artwork[] = [];
-      for (const [index, row] of filled.entries()) {
-        if (!row.file) continue;
-        setUploadStatus({
-          label: `작품 이미지 변환 중 (${index + 1}/${filled.length})`,
-          detail: row.file.name,
-          progress: 35 + Math.round(((index + 1) / filled.length) * 45),
-          tone: "working",
-        });
-        const imageUrl = await prepareImageDataUrl(row.file, {
-          maxSize: 500,
-          quality: 0.45,
-          maxBytes: 260 * 1024,
-        });
-        builtArtworks.push({
-          id: crypto.randomUUID(),
-          title: row.title.trim(),
-          description: row.description.trim(),
+      const nextArtworks: Artwork[] = [];
+      for (const art of validArtworks) {
+        const imageUrl = art.file
+          ? await prepareImageDataUrl(art.file, {
+              maxSize: 500,
+              quality: 0.45,
+              maxBytes: 260 * 1024,
+            })
+          : art.imageUrl;
+
+        nextArtworks.push({
+          id: art.id || crypto.randomUUID(),
+          title: art.title.trim(),
+          description: art.description.trim(),
           imageUrl,
         });
       }
 
-      setUploadStatus({
-        label: "전시 정보 저장 중",
-        detail: "Firestore에 전시 문서를 만들고 있습니다.",
-        progress: 90,
-        tone: "working",
-      });
-
-      const payload: ExhibitionInput = {
+      await updateExhibition(original.id, {
         title: title.trim(),
         description: description.trim(),
-        thumbnail,
-        hostId: userProfile.uid,
-        hostName: userProfile.nickname,
         category,
-        createdAt: new Date().toISOString(),
         price,
         musicId,
-        artworks: builtArtworks,
-        likes: 0,
-        dislikes: 0,
-        commentCount: 0,
-        commentReactionCount: 0,
-        reactions: {},
-      };
-
-      await createExhibition(payload);
-      setUploadStatus({
-        label: "전시 등록 완료",
-        detail: "잠시 후 HOST 화면으로 이동합니다.",
-        progress: 100,
-        tone: "success",
+        thumbnail,
+        artworks: nextArtworks,
       });
-      await new Promise((resolve) => setTimeout(resolve, 900));
+
       router.push("/host");
     } catch (event) {
-      const message =
-        event instanceof Error ? event.message : "이미지 처리에 실패했습니다.";
-      setError(`${message}\n\n이미지를 더 작은 파일로 선택하거나 작품 수를 줄여 다시 시도해주세요.`);
-      setUploadStatus(null);
+      setError(event instanceof Error ? event.message : "전시를 수정하지 못했습니다.");
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   };
 
-  if (!isFirebaseConfigured()) {
+  if (!original) {
     return (
-      <main className="mx-auto max-w-3xl flex-1 px-6 py-16">
-        <p className="text-zinc-400">
-          Firebase와 Firestore 설정이 필요합니다.{" "}
-          <Link className="text-white underline" href="/login">
-            로그인 안내
-          </Link>
-          를 확인해주세요.
-        </p>
+      <main className="flex flex-1 items-center justify-center text-sm text-zinc-500">
+        전시 정보를 불러오는 중...
       </main>
     );
   }
@@ -279,39 +258,15 @@ export default function CreateExhibitionPage() {
       <Link href="/host" className="text-sm text-zinc-500 hover:text-zinc-300">
         ← HOST로 돌아가기
       </Link>
-      <h1 className="mt-6 text-4xl font-semibold">전시 만들기</h1>
+      <h1 className="mt-6 text-4xl font-semibold">전시 수정하기</h1>
       <p className="mt-3 text-sm text-zinc-400">
-        작품은 최대 5개까지 등록할 수 있습니다.
+        기존 이미지는 유지하고, 새 파일을 선택한 항목만 교체합니다.
       </p>
 
       {error && (
         <p className="mt-6 whitespace-pre-line rounded-2xl border border-red-900/60 bg-red-950/40 p-4 text-sm text-red-100">
           {error}
         </p>
-      )}
-
-      {uploadStatus && (
-        <div
-          className={`mt-6 rounded-2xl border p-4 text-sm ${
-            uploadStatus.tone === "success"
-              ? "border-emerald-800/70 bg-emerald-950/40 text-emerald-100"
-              : "border-zinc-800 bg-zinc-950 text-zinc-200"
-          }`}
-        >
-          <div className="flex items-center justify-between gap-4">
-            <strong>{uploadStatus.label}</strong>
-            <span>{uploadStatus.progress}%</span>
-          </div>
-          <p className="mt-2 text-zinc-400">{uploadStatus.detail}</p>
-          <div className="mt-4 h-2 overflow-hidden rounded-full bg-zinc-800">
-            <div
-              className={`h-full rounded-full transition-all ${
-                uploadStatus.tone === "success" ? "bg-emerald-400" : "bg-white"
-              }`}
-              style={{ width: `${uploadStatus.progress}%` }}
-            />
-          </div>
-        </div>
       )}
 
       <div className="mt-10 space-y-6">
@@ -321,11 +276,15 @@ export default function CreateExhibitionPage() {
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             className="w-full rounded-2xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-white outline-none focus:border-zinc-500"
-            placeholder="나의 첫 전시"
           />
         </label>
 
-        <ImageDropField label="대표 이미지" file={thumbFile} onFile={setThumbFile} />
+        <ImageDropField
+          label="대표 이미지"
+          file={thumbFile}
+          currentUrl={original.thumbnail}
+          onFile={setThumbFile}
+        />
 
         <label className="block space-y-2 text-sm">
           <span className="text-zinc-400">설명</span>
@@ -333,7 +292,6 @@ export default function CreateExhibitionPage() {
             value={description}
             onChange={(event) => setDescription(event.target.value)}
             className="h-36 w-full rounded-2xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-white outline-none focus:border-zinc-500"
-            placeholder="전시의 톤과 영감을 적어주세요."
           />
         </label>
 
@@ -386,40 +344,54 @@ export default function CreateExhibitionPage() {
           <h2 className="text-2xl font-semibold">작품</h2>
           <button
             type="button"
-            onClick={addRow}
-            disabled={artworks.length >= 5 || submitting}
+            onClick={addArtwork}
+            disabled={artworks.length >= 5 || saving}
             className="text-sm text-zinc-400 underline decoration-zinc-600 disabled:opacity-30"
           >
             작품 추가
           </button>
         </div>
 
-        {artworks.map((row, index) => (
+        {artworks.map((art, index) => (
           <div
-            key={index}
+            key={art.id}
             className="space-y-4 rounded-3xl border border-zinc-900 bg-zinc-950/60 p-6"
           >
-            <p className="text-xs uppercase tracking-[0.25em] text-zinc-500">
-              작품 {index + 1}
-            </p>
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-[0.25em] text-zinc-500">
+                작품 {index + 1}
+              </p>
+              {artworks.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeArtwork(index)}
+                  className="text-xs text-zinc-500 hover:text-rose-200"
+                >
+                  삭제
+                </button>
+              )}
+            </div>
             <input
-              value={row.title}
-              onChange={(event) => updateRow(index, { title: event.target.value })}
+              value={art.title}
+              onChange={(event) =>
+                updateArtwork(index, { title: event.target.value })
+              }
               placeholder="작품 제목"
               className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-sm text-white outline-none focus:border-zinc-500"
             />
             <textarea
-              value={row.description}
+              value={art.description}
               onChange={(event) =>
-                updateRow(index, { description: event.target.value })
+                updateArtwork(index, { description: event.target.value })
               }
               placeholder="작품 설명"
               className="h-28 w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-sm text-white outline-none focus:border-zinc-500"
             />
             <ImageDropField
               label="작품 이미지"
-              file={row.file}
-              onFile={(file) => updateRow(index, { file })}
+              file={art.file}
+              currentUrl={art.imageUrl}
+              onFile={(file) => updateArtwork(index, { file })}
             />
           </div>
         ))}
@@ -427,11 +399,11 @@ export default function CreateExhibitionPage() {
 
       <button
         type="button"
-        disabled={submitting}
-        onClick={handleSubmit}
+        disabled={saving}
+        onClick={save}
         className="mt-10 w-full rounded-2xl bg-white py-4 text-sm font-semibold text-black transition hover:bg-zinc-200 disabled:opacity-40"
       >
-        {submitting ? uploadStatus?.label ?? "등록 중..." : "전시 등록하기"}
+        {saving ? "수정 저장 중..." : "수정 저장하기"}
       </button>
     </main>
   );

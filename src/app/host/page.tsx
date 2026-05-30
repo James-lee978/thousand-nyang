@@ -71,7 +71,15 @@ export default function HostPage() {
         ) : (
           <div className="mt-6 grid gap-6 md:grid-cols-2">
             {mine.map((item) => (
-              <ExhibitionCard key={item.id} exhibition={item} />
+              <div key={item.id} className="space-y-3">
+                <ExhibitionCard exhibition={item} />
+                <Link
+                  href={`/exhibition/${item.id}/edit`}
+                  className="inline-flex w-full items-center justify-center rounded-2xl border border-zinc-800 py-3 text-sm text-zinc-200 hover:border-zinc-600"
+                >
+                  전시 수정하기
+                </Link>
+              </div>
             ))}
           </div>
         )}

@@ -1,11 +1,11 @@
 "use client";
 
+import { FadeIn, ScrollTransition } from "@/components/effects/ScrollTransition";
 import { ExhibitionCard } from "@/components/exhibition/ExhibitionCard";
-import { subscribeToExhibitions } from "@/firebase/firestore";
 import { isFirebaseConfigured } from "@/firebase/config";
+import { subscribeToExhibitions } from "@/firebase/firestore";
 import { CATEGORIES } from "@/lib/categories";
 import { MOCK_EXHIBITIONS } from "@/lib/mock-exhibitions";
-import { ScrollTransition, FadeIn } from "@/components/effects/ScrollTransition";
 import type { Exhibition } from "@/types";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -19,30 +19,40 @@ function mergeCatalog(remote: Exhibition[]): Exhibition[] {
   );
 }
 
+function popularityScore(exhibition: Exhibition) {
+  return (
+    (exhibition.likes ?? 0) +
+    (exhibition.dislikes ?? 0) +
+    (exhibition.commentCount ?? 0) +
+    (exhibition.commentReactionCount ?? 0)
+  );
+}
+
 export default function HomePage() {
   const [remote, setRemote] = useState<Exhibition[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     if (!isFirebaseConfigured()) {
-      setLoaded(true);
+      queueMicrotask(() => setLoaded(true));
       return;
     }
-    
-    const unsubscribe = subscribeToExhibitions((exhibitions) => {
+
+    return subscribeToExhibitions((exhibitions) => {
       setRemote(exhibitions);
       setLoaded(true);
     });
-    
-    return () => {
-      unsubscribe();
-    };
   }, []);
 
   const catalog = useMemo(() => mergeCatalog(remote), [remote]);
   const today = catalog[0];
   const popular = useMemo(
-    () => [...catalog].sort((a, b) => b.price - a.price),
+    () =>
+      [...catalog].sort(
+        (a, b) =>
+          popularityScore(b) - popularityScore(a) ||
+          (a.createdAt < b.createdAt ? 1 : -1),
+      ),
     [catalog],
   );
   const byCategory = useMemo(() => {
@@ -58,9 +68,8 @@ export default function HomePage() {
 
   return (
     <main className="flex-1 bg-black text-white">
-      {/* Hero Section - Immersive Gallery Entrance */}
-      <section className="relative min-h-screen flex items-center justify-center px-6">
-        <div className="max-w-4xl text-center space-y-12">
+      <section className="relative flex min-h-screen items-center justify-center px-6">
+        <div className="max-w-4xl space-y-12 text-center">
           <FadeIn delay={0.2}>
             <p className="text-[10px] uppercase tracking-[0.5em] text-zinc-500">
               Online Exhibition Archive
@@ -72,7 +81,7 @@ export default function HomePage() {
             </h1>
           </FadeIn>
           <FadeIn delay={0.6}>
-            <p className="text-sm text-zinc-400 max-w-xl mx-auto leading-relaxed">
+            <p className="mx-auto max-w-xl text-sm leading-relaxed text-zinc-400">
               전공에서 발견한 예술을 전시하는 디지털 공간
             </p>
           </FadeIn>
@@ -80,19 +89,19 @@ export default function HomePage() {
             <div className="flex flex-wrap justify-center gap-6 pt-8">
               <Link
                 href="/host"
-                className="px-8 py-3 text-xs uppercase tracking-[0.2em] text-white border border-white/30 hover:bg-white hover:text-black transition-all duration-500"
+                className="border border-white/30 px-8 py-3 text-xs uppercase tracking-[0.2em] text-white transition-all duration-500 hover:bg-white hover:text-black"
               >
                 Host
               </Link>
               <Link
                 href="/guest"
-                className="px-8 py-3 text-xs uppercase tracking-[0.2em] text-zinc-400 hover:text-white transition-all duration-500"
+                className="px-8 py-3 text-xs uppercase tracking-[0.2em] text-zinc-400 transition-all duration-500 hover:text-white"
               >
                 Guest
               </Link>
               <Link
                 href="/login"
-                className="px-8 py-3 text-xs uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300 transition-all duration-500"
+                className="px-8 py-3 text-xs uppercase tracking-[0.2em] text-zinc-500 transition-all duration-500 hover:text-zinc-300"
               >
                 Login
               </Link>
@@ -101,21 +110,22 @@ export default function HomePage() {
         </div>
         {!loaded && (
           <p className="absolute bottom-12 left-1/2 -translate-x-1/2 text-xs text-zinc-600">
-            Loading exhibitions…
+            Loading exhibitions...
           </p>
         )}
       </section>
 
-      {/* Today's Exhibition - Featured */}
       {today && (
-        <section className="py-32 px-6">
+        <section className="px-6 py-32">
           <ScrollTransition direction="up" delay={0.2}>
-            <div className="max-w-7xl mx-auto">
+            <div className="mx-auto max-w-7xl">
               <div className="mb-16 space-y-4">
                 <p className="text-[10px] uppercase tracking-[0.5em] text-zinc-500">
                   Featured
                 </p>
-                <h2 className="text-4xl font-light tracking-tight">오늘의 전시</h2>
+                <h2 className="text-4xl font-light tracking-tight">
+                  오늘의 전시
+                </h2>
               </div>
               <div className="grid gap-16 md:grid-cols-2">
                 <ExhibitionCard exhibition={today} />
@@ -125,29 +135,37 @@ export default function HomePage() {
         </section>
       )}
 
-      {/* Popular Exhibitions */}
-      <section className="py-32 px-6">
+      <section className="px-6 py-32">
         <ScrollTransition direction="up" delay={0.2}>
-          <div className="max-w-7xl mx-auto">
+          <div className="mx-auto max-w-7xl">
             <div className="mb-16 space-y-4">
               <p className="text-[10px] uppercase tracking-[0.5em] text-zinc-500">
-                Popular
+                Live Ranking
               </p>
-              <h2 className="text-4xl font-light tracking-tight">인기 전시</h2>
+              <h2 className="text-4xl font-light tracking-tight">
+                실시간 인기 전시
+              </h2>
+              <p className="max-w-2xl text-sm text-zinc-500">
+                좋아요, 싫어요, 댓글 수를 합산해서 상위 3개만 보여줍니다.
+              </p>
             </div>
             <div className="grid gap-16 md:grid-cols-2 lg:grid-cols-3">
-              {popular.slice(0, 6).map((item, index) => (
-                <ExhibitionCard key={item.id} exhibition={item} />
+              {popular.slice(0, 3).map((item, index) => (
+                <div key={item.id} className="space-y-4">
+                  <p className="text-xs uppercase tracking-[0.25em] text-amber-200/70">
+                    Rank {index + 1} · Score {popularityScore(item)}
+                  </p>
+                  <ExhibitionCard exhibition={item} />
+                </div>
               ))}
             </div>
           </div>
         </ScrollTransition>
       </section>
 
-      {/* Latest Exhibitions */}
-      <section className="py-32 px-6">
+      <section className="px-6 py-32">
         <ScrollTransition direction="up" delay={0.2}>
-          <div className="max-w-7xl mx-auto">
+          <div className="mx-auto max-w-7xl">
             <div className="mb-16 space-y-4">
               <p className="text-[10px] uppercase tracking-[0.5em] text-zinc-500">
                 Latest
@@ -163,10 +181,9 @@ export default function HomePage() {
         </ScrollTransition>
       </section>
 
-      {/* Category Exploration */}
-      <section className="py-32 px-6 pb-48">
+      <section className="px-6 py-32 pb-48">
         <ScrollTransition direction="up" delay={0.2}>
-          <div className="max-w-7xl mx-auto">
+          <div className="mx-auto max-w-7xl">
             <div className="mb-16 space-y-4">
               <p className="text-[10px] uppercase tracking-[0.5em] text-zinc-500">
                 Explore

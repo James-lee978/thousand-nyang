@@ -1,18 +1,28 @@
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
+  increment,
   onSnapshot,
   query,
   runTransaction,
   setDoc,
+  serverTimestamp,
+  updateDoc,
   where,
 } from "firebase/firestore";
 import type { User as FirebaseUser } from "firebase/auth";
 import { generateRandomName } from "@/lib/random-name";
-import type { Exhibition, ExhibitionInput, User } from "@/types";
+import type {
+  Exhibition,
+  ExhibitionComment,
+  ExhibitionInput,
+  ExhibitionReply,
+  User,
+} from "@/types";
 import { getFirestoreDb } from "./config";
 
 function db() {
@@ -35,6 +45,8 @@ export async function ensureUserDocument(
     role: existing?.role,
     profileImage: existing?.profileImage || firebaseUser.photoURL || undefined,
     createdAt: existing?.createdAt || new Date().toISOString(),
+    followerCount: existing?.followerCount ?? 0,
+    followingCount: existing?.followingCount ?? 0,
   };
 
   await setDoc(ref, profile, { merge: true });
@@ -49,6 +61,83 @@ export async function getUserProfile(uid: string): Promise<User | null> {
   return snap.data() as User;
 }
 
+export function subscribeToUserProfile(
+  uid: string,
+  callback: (profile: User | null) => void,
+): () => void {
+  const d = getFirestoreDb();
+  if (!d) {
+    callback(null);
+    return () => {};
+  }
+
+  return onSnapshot(doc(d, "users", uid), (snapshot) => {
+    callback(snapshot.exists() ? (snapshot.data() as User) : null);
+  });
+}
+
+export function subscribeToFollowState(
+  viewerId: string | null | undefined,
+  curatorId: string,
+  callback: (following: boolean) => void,
+): () => void {
+  const d = getFirestoreDb();
+  if (!d || !viewerId || viewerId === curatorId) {
+    callback(false);
+    return () => {};
+  }
+
+  return onSnapshot(
+    doc(d, "users", viewerId, "following", curatorId),
+    (snapshot) => callback(snapshot.exists()),
+  );
+}
+
+export async function toggleFollowCurator(
+  viewerId: string,
+  curatorId: string,
+): Promise<boolean> {
+  const d = db();
+  const followRef = doc(d, "users", viewerId, "following", curatorId);
+  const viewerRef = doc(d, "users", viewerId);
+  const curatorRef = doc(d, "users", curatorId);
+
+  return runTransaction(d, async (transaction) => {
+    const snap = await transaction.get(followRef);
+
+    if (snap.exists()) {
+      transaction.delete(followRef);
+      transaction.set(
+        viewerRef,
+        { followingCount: increment(-1) },
+        { merge: true },
+      );
+      transaction.set(
+        curatorRef,
+        { followerCount: increment(-1) },
+        { merge: true },
+      );
+      return false;
+    }
+
+    transaction.set(followRef, {
+      curatorId,
+      followedAt: serverTimestamp(),
+    });
+    transaction.set(
+      viewerRef,
+      { followingCount: increment(1) },
+      { merge: true },
+    );
+    transaction.set(
+      curatorRef,
+      { followerCount: increment(1) },
+      { merge: true },
+    );
+    return true;
+  });
+}
+
 export async function setUserRole(uid: string, role: "host" | "guest") {
   const d = db();
   await setDoc(doc(d, "users", uid), { role }, { merge: true });
@@ -59,8 +148,223 @@ export async function createExhibition(data: ExhibitionInput) {
   await addDoc(collection(d, "exhibitions"), {
     likes: 0,
     dislikes: 0,
+    commentCount: 0,
+    commentReactionCount: 0,
     reactions: {},
     ...data,
+  });
+}
+
+export async function updateExhibition(
+  exhibitionId: string,
+  data: Partial<ExhibitionInput>,
+) {
+  const d = db();
+  await updateDoc(doc(d, "exhibitions", exhibitionId), data);
+}
+
+export function subscribeToComments(
+  exhibitionId: string,
+  callback: (comments: ExhibitionComment[]) => void,
+): () => void {
+  const d = getFirestoreDb();
+  if (!d) {
+    callback([]);
+    return () => {};
+  }
+
+  return onSnapshot(
+    collection(d, "exhibitions", exhibitionId, "comments"),
+    (snapshot) => {
+      const comments = snapshot.docs.map((docSnap) => {
+        const data = docSnap.data() as Omit<ExhibitionComment, "id">;
+        return { id: docSnap.id, ...data };
+      });
+      comments.sort((a, b) => (a.createdAt > b.createdAt ? 1 : -1));
+      callback(comments);
+    },
+  );
+}
+
+export async function addExhibitionComment(
+  exhibitionId: string,
+  uid: string,
+  nickname: string,
+  body: string,
+) {
+  const d = db();
+  const now = new Date().toISOString();
+  await addDoc(collection(d, "exhibitions", exhibitionId, "comments"), {
+    exhibitionId,
+    uid,
+    nickname,
+    body,
+    createdAt: now,
+    likes: 0,
+    dislikes: 0,
+    replyCount: 0,
+    reactions: {},
+  });
+  await updateDoc(doc(d, "exhibitions", exhibitionId), {
+    commentCount: increment(1),
+  });
+}
+
+export async function updateExhibitionComment(
+  exhibitionId: string,
+  commentId: string,
+  body: string,
+) {
+  const d = db();
+  await updateDoc(doc(d, "exhibitions", exhibitionId, "comments", commentId), {
+    body,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+export async function deleteExhibitionComment(
+  exhibitionId: string,
+  commentId: string,
+) {
+  const d = db();
+  const ref = doc(d, "exhibitions", exhibitionId, "comments", commentId);
+  const snap = await getDoc(ref);
+  const replyCount = snap.exists()
+    ? ((snap.data() as Partial<ExhibitionComment>).replyCount ?? 0)
+    : 0;
+  await deleteDoc(ref);
+  await updateDoc(doc(d, "exhibitions", exhibitionId), {
+    commentCount: increment(-1 * (1 + replyCount)),
+  });
+}
+
+export function subscribeToReplies(
+  exhibitionId: string,
+  commentId: string,
+  callback: (replies: ExhibitionReply[]) => void,
+): () => void {
+  const d = getFirestoreDb();
+  if (!d) {
+    callback([]);
+    return () => {};
+  }
+
+  return onSnapshot(
+    collection(d, "exhibitions", exhibitionId, "comments", commentId, "replies"),
+    (snapshot) => {
+      const replies = snapshot.docs.map((docSnap) => {
+        const data = docSnap.data() as Omit<ExhibitionReply, "id">;
+        return { id: docSnap.id, ...data };
+      });
+      replies.sort((a, b) => (a.createdAt > b.createdAt ? 1 : -1));
+      callback(replies);
+    },
+  );
+}
+
+export async function addExhibitionReply(
+  exhibitionId: string,
+  commentId: string,
+  uid: string,
+  nickname: string,
+  body: string,
+) {
+  const d = db();
+  const now = new Date().toISOString();
+  await addDoc(
+    collection(d, "exhibitions", exhibitionId, "comments", commentId, "replies"),
+    {
+      exhibitionId,
+      commentId,
+      uid,
+      nickname,
+      body,
+      createdAt: now,
+    },
+  );
+  await updateDoc(doc(d, "exhibitions", exhibitionId, "comments", commentId), {
+    replyCount: increment(1),
+  });
+  await updateDoc(doc(d, "exhibitions", exhibitionId), {
+    commentCount: increment(1),
+  });
+}
+
+export async function updateExhibitionReply(
+  exhibitionId: string,
+  commentId: string,
+  replyId: string,
+  body: string,
+) {
+  const d = db();
+  await updateDoc(
+    doc(d, "exhibitions", exhibitionId, "comments", commentId, "replies", replyId),
+    {
+      body,
+      updatedAt: new Date().toISOString(),
+    },
+  );
+}
+
+export async function deleteExhibitionReply(
+  exhibitionId: string,
+  commentId: string,
+  replyId: string,
+) {
+  const d = db();
+  await deleteDoc(
+    doc(d, "exhibitions", exhibitionId, "comments", commentId, "replies", replyId),
+  );
+  await updateDoc(doc(d, "exhibitions", exhibitionId, "comments", commentId), {
+    replyCount: increment(-1),
+  });
+  await updateDoc(doc(d, "exhibitions", exhibitionId), {
+    commentCount: increment(-1),
+  });
+}
+
+export async function reactToComment(
+  exhibitionId: string,
+  commentId: string,
+  uid: string,
+  reaction: "like" | "dislike",
+): Promise<ExhibitionComment | null> {
+  const d = db();
+  const ref = doc(d, "exhibitions", exhibitionId, "comments", commentId);
+  const exhibitionRef = doc(d, "exhibitions", exhibitionId);
+
+  return runTransaction(d, async (transaction) => {
+    const snap = await transaction.get(ref);
+    if (!snap.exists()) return null;
+
+    const current = snap.data() as Omit<ExhibitionComment, "id">;
+    const reactions = { ...(current.reactions ?? {}) };
+    const previous = reactions[uid];
+    let likes = current.likes ?? 0;
+    let dislikes = current.dislikes ?? 0;
+    let delta = 0;
+
+    if (previous === reaction) {
+      delete reactions[uid];
+      delta = -1;
+      if (reaction === "like") likes = Math.max(0, likes - 1);
+      if (reaction === "dislike") dislikes = Math.max(0, dislikes - 1);
+    } else {
+      if (previous === "like") likes = Math.max(0, likes - 1);
+      if (previous === "dislike") dislikes = Math.max(0, dislikes - 1);
+      if (!previous) delta = 1;
+      reactions[uid] = reaction;
+      if (reaction === "like") likes += 1;
+      if (reaction === "dislike") dislikes += 1;
+    }
+
+    transaction.update(ref, { likes, dislikes, reactions });
+    if (delta !== 0) {
+      transaction.update(exhibitionRef, {
+        commentReactionCount: increment(delta),
+      });
+    }
+    return { id: snap.id, ...current, likes, dislikes, reactions };
   });
 }
 
