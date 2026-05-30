@@ -8,5 +8,6 @@ export const CATEGORIES = [
   "인공지능",
   "반도체",
   "우주항공",
+  "전시회 후기",
   "기타",
 ] as const;
