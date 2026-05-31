@@ -1,6 +1,7 @@
 export interface User {
   uid: string;
   nickname: string;
+  email?: string;
   role?: "host" | "guest";
   profileImage?: string;
   createdAt: string;
@@ -75,4 +76,21 @@ export interface ExhibitionReply {
   body: string;
   createdAt: string;
   updatedAt?: string;
+}
+
+export interface NotificationQueueItem {
+  id: string;
+  type: "exhibition_like" | "exhibition_dislike" | "comment" | "comment_like" | "comment_dislike";
+  status: "pending" | "sent" | "failed" | "skipped";
+  exhibitionId: string;
+  exhibitionTitle: string;
+  hostId: string;
+  actorId: string;
+  actorName: string;
+  targetCommentId?: string;
+  message: string;
+  createdAt: string;
+  sentAt?: string;
+  attempts?: number;
+  error?: string;
 }

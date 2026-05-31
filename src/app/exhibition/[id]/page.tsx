@@ -437,7 +437,7 @@ function CommentsModal({
       setCommentError("로그인 후 댓글에 반응할 수 있습니다.");
       return;
     }
-    await reactToComment(exhibition.id, commentId, user.uid, reaction);
+    await reactToComment(exhibition.id, commentId, user.uid, nickname, reaction);
   };
 
   if (!open) return null;
@@ -687,7 +687,7 @@ export default function ExhibitionDetailPage() {
     setReactionError(null);
     setReacting(true);
     try {
-      const updated = await reactToExhibition(data.id, user.uid, reaction);
+      const updated = await reactToExhibition(data.id, user.uid, nickname, reaction);
       if (updated) setData(updated);
     } catch (error) {
       setReactionError(

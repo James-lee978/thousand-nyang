@@ -212,9 +212,9 @@ export default function CreateExhibitionPage() {
           tone: "working",
         });
         const imageUrl = await prepareImageDataUrl(row.file, {
-          maxSize: 500,
-          quality: 0.45,
-          maxBytes: 260 * 1024,
+          maxSize: 900,
+          quality: 0.72,
+          maxBytes: 720 * 1024,
         });
         builtArtworks.push({
           id: crypto.randomUUID(),

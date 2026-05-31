@@ -17,9 +17,11 @@ import {
 import type { User as FirebaseUser } from "firebase/auth";
 import { generateRandomName } from "@/lib/random-name";
 import type {
+  Artwork,
   Exhibition,
   ExhibitionComment,
   ExhibitionInput,
+  NotificationQueueItem,
   ExhibitionReply,
   User,
 } from "@/types";
@@ -42,6 +44,7 @@ export async function ensureUserDocument(
   const profile: User = {
     uid: firebaseUser.uid,
     nickname: existing?.nickname || generateRandomName(),
+    email: existing?.email || firebaseUser.email || undefined,
     role: existing?.role,
     profileImage: existing?.profileImage || firebaseUser.photoURL || undefined,
     createdAt: existing?.createdAt || new Date().toISOString(),
@@ -145,13 +148,30 @@ export async function setUserRole(uid: string, role: "host" | "guest") {
 
 export async function createExhibition(data: ExhibitionInput) {
   const d = db();
-  await addDoc(collection(d, "exhibitions"), {
+  const { artworks, ...exhibition } = data;
+  const ref = await addDoc(collection(d, "exhibitions"), {
     likes: 0,
     dislikes: 0,
     commentCount: 0,
     commentReactionCount: 0,
     reactions: {},
-    ...data,
+    artworks: [],
+    artworkCount: artworks.length,
+    ...exhibition,
+  });
+  await saveArtworkDocuments(ref.id, artworks);
+}
+
+async function queueNotification(
+  item: Omit<NotificationQueueItem, "id" | "status" | "createdAt" | "attempts">,
+) {
+  const d = db();
+  if (item.hostId === item.actorId) return;
+  await addDoc(collection(d, "notificationQueue"), {
+    ...item,
+    status: "pending",
+    attempts: 0,
+    createdAt: new Date().toISOString(),
   });
 }
 
@@ -160,7 +180,48 @@ export async function updateExhibition(
   data: Partial<ExhibitionInput>,
 ) {
   const d = db();
-  await updateDoc(doc(d, "exhibitions", exhibitionId), data);
+  const { artworks, ...exhibition } = data;
+  await updateDoc(doc(d, "exhibitions", exhibitionId), {
+    ...exhibition,
+    ...(artworks ? { artworks: [], artworkCount: artworks.length } : {}),
+  });
+  if (artworks) await replaceArtworkDocuments(exhibitionId, artworks);
+}
+
+async function saveArtworkDocuments(exhibitionId: string, artworks: Artwork[]) {
+  const d = db();
+  await Promise.all(
+    artworks.map((artwork, index) =>
+      setDoc(doc(d, "exhibitions", exhibitionId, "artworks", artwork.id), {
+        ...artwork,
+        order: index,
+      }),
+    ),
+  );
+}
+
+async function replaceArtworkDocuments(exhibitionId: string, artworks: Artwork[]) {
+  const d = db();
+  const snap = await getDocs(collection(d, "exhibitions", exhibitionId, "artworks"));
+  await Promise.all(snap.docs.map((docSnap) => deleteDoc(docSnap.ref)));
+  await saveArtworkDocuments(exhibitionId, artworks);
+}
+
+async function listArtworkDocuments(exhibitionId: string): Promise<Artwork[]> {
+  const d = getFirestoreDb();
+  if (!d) return [];
+  const snap = await getDocs(collection(d, "exhibitions", exhibitionId, "artworks"));
+  const rows = snap.docs.map((docSnap) => {
+    const data = docSnap.data() as Artwork & { order?: number };
+    return { ...data, id: data.id || docSnap.id };
+  });
+  rows.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  return rows.map(({ id, title, description, imageUrl }) => ({
+    id,
+    title,
+    description,
+    imageUrl,
+  }));
 }
 
 export function subscribeToComments(
@@ -208,6 +269,19 @@ export async function addExhibitionComment(
   await updateDoc(doc(d, "exhibitions", exhibitionId), {
     commentCount: increment(1),
   });
+  const exhibitionSnap = await getDoc(doc(d, "exhibitions", exhibitionId));
+  if (exhibitionSnap.exists()) {
+    const exhibition = exhibitionSnap.data() as Omit<Exhibition, "id">;
+    await queueNotification({
+      type: "comment",
+      exhibitionId,
+      exhibitionTitle: exhibition.title,
+      hostId: exhibition.hostId,
+      actorId: uid,
+      actorName: nickname,
+      message: `${nickname}님이 '${exhibition.title}' 전시에 댓글을 남겼습니다.`,
+    });
+  }
 }
 
 export async function updateExhibitionComment(
@@ -327,13 +401,14 @@ export async function reactToComment(
   exhibitionId: string,
   commentId: string,
   uid: string,
+  actorName: string,
   reaction: "like" | "dislike",
 ): Promise<ExhibitionComment | null> {
   const d = db();
   const ref = doc(d, "exhibitions", exhibitionId, "comments", commentId);
   const exhibitionRef = doc(d, "exhibitions", exhibitionId);
 
-  return runTransaction(d, async (transaction) => {
+  const result = await runTransaction(d, async (transaction) => {
     const snap = await transaction.get(ref);
     if (!snap.exists()) return null;
 
@@ -364,8 +439,31 @@ export async function reactToComment(
         commentReactionCount: increment(delta),
       });
     }
-    return { id: snap.id, ...current, likes, dislikes, reactions };
+    const shouldNotify = previous !== reaction;
+    return {
+      comment: { id: snap.id, ...current, likes, dislikes, reactions },
+      shouldNotify,
+    };
   });
+
+  if (result?.shouldNotify) {
+    const exhibitionSnap = await getDoc(doc(d, "exhibitions", exhibitionId));
+    if (exhibitionSnap.exists()) {
+      const exhibition = exhibitionSnap.data() as Omit<Exhibition, "id">;
+      await queueNotification({
+        type: reaction === "like" ? "comment_like" : "comment_dislike",
+        exhibitionId,
+        exhibitionTitle: exhibition.title,
+        hostId: exhibition.hostId,
+        actorId: uid,
+        actorName,
+        targetCommentId: commentId,
+        message: `${actorName}님이 '${exhibition.title}' 전시의 댓글에 ${reaction === "like" ? "좋아요" : "싫어요"}를 눌렀습니다.`,
+      });
+    }
+  }
+
+  return result?.comment ?? null;
 }
 
 export async function listExhibitions(): Promise<Exhibition[]> {
@@ -385,7 +483,13 @@ export async function getExhibition(id: string): Promise<Exhibition | null> {
   if (!d) return null;
   const snap = await getDoc(doc(d, "exhibitions", id));
   if (!snap.exists()) return null;
-  return { id: snap.id, ...(snap.data() as Omit<Exhibition, "id">) };
+  const data = snap.data() as Omit<Exhibition, "id">;
+  const subcollectionArtworks = await listArtworkDocuments(id);
+  return {
+    id: snap.id,
+    ...data,
+    artworks: subcollectionArtworks.length ? subcollectionArtworks : data.artworks ?? [],
+  };
 }
 
 export async function listExhibitionsByHost(
@@ -411,12 +515,13 @@ export async function getTotalUserCount(): Promise<number> {
 export async function reactToExhibition(
   exhibitionId: string,
   uid: string,
+  actorName: string,
   reaction: "like" | "dislike",
 ): Promise<Exhibition | null> {
   const d = db();
   const ref = doc(d, "exhibitions", exhibitionId);
 
-  return runTransaction(d, async (transaction) => {
+  const result = await runTransaction(d, async (transaction) => {
     const snap = await transaction.get(ref);
     if (!snap.exists()) return null;
 
@@ -439,8 +544,25 @@ export async function reactToExhibition(
     }
 
     transaction.update(ref, { likes, dislikes, reactions });
-    return { id: snap.id, ...current, likes, dislikes, reactions };
+    return {
+      exhibition: { id: snap.id, ...current, likes, dislikes, reactions },
+      shouldNotify: previous !== reaction,
+    };
   });
+
+  if (result?.shouldNotify) {
+    await queueNotification({
+      type: reaction === "like" ? "exhibition_like" : "exhibition_dislike",
+      exhibitionId,
+      exhibitionTitle: result.exhibition.title,
+      hostId: result.exhibition.hostId,
+      actorId: uid,
+      actorName,
+      message: `${actorName}님이 '${result.exhibition.title}' 전시에 ${reaction === "like" ? "좋아요" : "싫어요"}를 눌렀습니다.`,
+    });
+  }
+
+  return result?.exhibition ?? null;
 }
 
 export function subscribeToUserCount(
